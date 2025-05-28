@@ -1,6 +1,7 @@
+// client/src/app/page.tsx
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState, useEffect } from "react";
 
 interface Question {
   question: string;
@@ -9,77 +10,146 @@ interface Question {
 }
 
 export default function Page() {
-  const [qs, setQs] = useState<Question[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [started, setStarted] = useState(false);
+  const [questions, setQuestions] = useState<Question[]>([]);
+  const [currentIdx, setCurrentIdx] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [health, setHealth] = useState(5);
+  const [gameOver, setGameOver] = useState(false);
+  const batchSize = 10;
 
-  // Use an environment variable for the API base URL or default to localhost in development
-  const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+  // Fetch a batch of questions
+  async function fetchBatch() {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/external-questions?amount=${batchSize}`);
+      if (!res.ok) throw new Error(`Fetch error: ${res.status}`);
+      const data: Question[] = await res.json();
+      setQuestions(data);
+      setCurrentIdx(0);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  }
 
+  // On game start or when batch is exhausted, fetch batch
   useEffect(() => {
-    fetch(`${API_BASE}/api/external-questions?amount=5`)
-      .then((res) => {
-        if (!res.ok) {
-          throw new Error(`API error: ${res.status} ${res.statusText}`);
-        }
-        return res.json() as Promise<Question[]>;
-      })
-      .then(setQs)
-      .catch((err) => {
-        console.error(err);
-        setError(err.message);
-      });
-  }, [API_BASE]);
+    if (started && !gameOver) {
+      if (questions.length === 0 || currentIdx >= questions.length) {
+        fetchBatch();
+      }
+    }
+  }, [started, gameOver, currentIdx, questions.length]);
 
-  if (error) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-red-900 to-yellow-800">
-        <p className="text-red-300 font-mono">Error: {error}</p>
-      </div>
-    );
+  // Current question
+  const question = questions[currentIdx];
+
+  function handleAnswer(ans: string) {
+    if (!question) return;
+    // Wrong?
+    if (ans !== question.correct_answer) {
+      const newHealth = health - 1;
+      setHealth(newHealth);
+      if (newHealth <= 0) {
+        setGameOver(true);
+        return;
+      }
+    }
+    setCurrentIdx((i) => i + 1);
   }
 
-  if (!qs) {
-    return (
-      <div className="min-h-screen bg-gradient-to-b from-red-900 to-yellow-800 flex items-center justify-center">
-        <p className="text-yellow-300 text-lg">Loading...</p>
-      </div>
-    );
+  function restart() {
+    setHealth(5);
+    setGameOver(false);
+    setQuestions([]);
+    setCurrentIdx(0);
   }
 
-  return (
-    <main className="min-h-screen bg-gradient-to-b from-blue-900 to-red-900 p-6">
-      <h1 className="text-yellow-300 text-2xl mb-6 text-center">Fire Emblem Trivia</h1>
-      <div className="space-y-6">
-        {qs.map((q, idx) => (
-          <div
-            key={idx}
-            className="bg-red-800 border-2 border-yellow-300 p-4 rounded-md shadow-lg"
+  // START MENU
+  if (!started) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-[#0b1f3a] to-[#8b1a1a] flex items-center justify-center px-4 py-6">
+        <div className="text-center">
+          <h1 className="text-5xl text-[#f4c430] mb-8 font-mono">Trivia-RPG</h1>
+          <button
+            onClick={() => setStarted(true)}
+            className="px-8 py-4 bg-[#f4c430] text-[#8b1a1a] font-bold rounded shadow-lg hover:bg-[#e5c21a] transition"
           >
-            <p className="text-yellow-300 mb-3 font-mono">
-              Q{idx + 1}: {decodeHTML(q.question)}
+            Start
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // GAME OVER
+  if (gameOver) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-[#0b1f3a] to-[#8b1a1a] flex items-center justify-center px-4 py-6">
+        <div className="text-center">
+          <h1 className="text-5xl text-[#8b1a1a] mb-6 font-mono">Game Over</h1>
+          <p className="text-[#f4c430] mb-6">Your health reached zero.</p>
+          <button
+            onClick={restart}
+            className="px-8 py-4 bg-[#f4c430] text-[#8b1a1a] font-bold rounded shadow-lg hover:bg-[#e5c21a] transition"
+          >
+            Restart
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // GAMEPLAY
+  return (
+    <div className="min-h-screen bg-gradient-to-b from-[#0b1f3a] to-[#8b1a1a] px-4 py-6">
+      <div className="max-w-xs mx-auto space-y-8">
+        {/* Health Bar */}
+        <div>
+          <div className="w-full bg-[#8b1a1a] rounded h-4 overflow-hidden">
+            <div
+              className="h-full"
+              style={{ backgroundColor: "#f4c430", width: `${(health / 5) * 100}%` }}
+            />
+          </div>
+          <p className="text-[#f4c430] mt-2 font-mono text-center">Health: {health}</p>
+        </div>
+
+        {/* Question Card */}
+        {loading || !question ? (
+          <p className="text-[#f4c430] font-mono text-center">Loading…</p>
+        ) : (
+          <div className="bg-[#8b1a1a] border-4 border-[#f4c430] p-6 rounded-lg shadow-xl mx-auto">
+            <p className="text-[#f4c430] mb-6 font-mono text-center px-2">
+              {decodeHTML(question.question)}
             </p>
-            <ul className="grid grid-cols-2 gap-3">
-              {shuffle([q.correct_answer, ...q.incorrect_answers]).map((ans, i) => (
-                <li key={i}>
-                  <button className="w-full px-3 py-2 border-2 border-yellow-300 rounded font-mono text-yellow-300 hover:bg-yellow-300 hover:text-red-900 transition">
+            <ul className="list-none p-0 m-0 grid grid-cols-1 gap-4">
+              {shuffle([question.correct_answer, ...question.incorrect_answers]).map((ans) => (
+                <li key={ans}>
+                  <button
+                    onClick={() => handleAnswer(ans)}
+                    className="w-full px-4 py-3 border-2 border-[#f4c430] rounded font-mono text-[#0b1f3a] bg-[#f4c430] hover:bg-[#d1b01f] transition"
+                  >
                     {decodeHTML(ans)}
                   </button>
                 </li>
               ))}
             </ul>
           </div>
-        ))}
+        )}
       </div>
-    </main>
+    </div>
   );
 }
 
+// Helpers
 function decodeHTML(html: string): string {
   const txt = document.createElement("textarea");
   txt.innerHTML = html;
   return txt.value;
 }
-
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
   for (let i = a.length - 1; i > 0; i--) {
